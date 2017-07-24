@@ -35,7 +35,7 @@ void label(char labelstring[20])
     {
         strcpy(code[codeIndex].label,labelstring);
     }
-    else 
+    else
     {
         printf("ERROR: overwriting label.  Current:%s, Overwriting:%s\n",code[codeIndex].label,labelstring);
         exit(0);
@@ -112,9 +112,9 @@ void branchif1c(uint16_t dst, char labelstring[20], uint16_t count)
 void memload(uint16_t address, uint16_t dataword)
 {
     uint8_t lower_byte;
-    
+
     load((address/256), DRAMHI);
-    
+
     lower_byte = address%256;
     load(lower_byte, DRAMLO);
 
@@ -124,7 +124,7 @@ void memload(uint16_t address, uint16_t dataword)
     }
     load(dataword/256,lower_byte);
     load(dataword%256,lower_byte+1);
-    
+
 }
 
 /* memread: moves the value at address in memory to dest
@@ -132,9 +132,9 @@ void memload(uint16_t address, uint16_t dataword)
 void memread(uint16_t address, uint16_t dest)
 {
     uint8_t lower_byte;
-    
+
     load((address/256), DRAMHI);
-    
+
     lower_byte = address%256;
     load(lower_byte, DRAMLO);
 
@@ -150,9 +150,9 @@ void memread(uint16_t address, uint16_t dest)
 void memwrite(uint16_t address, uint16_t src)
 {
     uint8_t lower_byte;
-    
+
     load((address/256), DRAMHI);
-    
+
     lower_byte = address%256;
     load(lower_byte, DRAMLO);
 
@@ -174,11 +174,11 @@ void rotateleft(void)
     move(SHL0,ALUA);
     branchif1c(CARRY,"ROTATE_ADD",counter);
     jumpc("ROTATE_END",counter);
-    
+
     labelc("ROTATE_ADD",counter);
     move(TRASH,APLUS1);
     move(APLUS1,ALUA);
-    
+
     labelc("ROTATE_END",counter);
     move(TRASH,TRASH);
 }
@@ -192,7 +192,7 @@ void inc16(uint16_t address)
 {
     static uint16_t counter=0;
     counter++;
-    
+
     memread(address, ALUA);
     move(TRASH, APLUS1);
     memwrite(address, APLUS1);
@@ -218,7 +218,7 @@ void add16(uint16_t a, uint16_t b, uint16_t result)
     memread(b, ADD);
     memwrite(ADD, result);
     branchif1(CARRY,"ADD_W_CARRY");
-    
+
     label("ADD_W_CARRY");
 }
 
@@ -226,7 +226,7 @@ void secondPass(void)
 {
     uint16_t i, j;
     uint8_t found = 0;
-    
+
     for (i=codeStart;i<codeIndex;i+=1)
     {
         if (0!=strcmp(code[i].missingUpper,""))
@@ -312,7 +312,7 @@ void printVHDL(void)
         printf("%u => x\"%02X\",  ",i,code[i].byte);
         printf("%u => x\"%02X\",\n",i+1,code[i+1].byte);
     }
-    
+
 }
 
 /* sendByteToAscii: convert a byte to two-digit ASCII
@@ -333,17 +333,17 @@ void sendByteToAscii(uint16_t address)
     rotateleft();
     load(0x0F,ANDA);
     move(ANDA,ALUA);
-    
+
     load(0x0A,GTA);             // branch if number is >9
     branchif1c(CARRY,"UPPER_LETTER",counter);
-    load(0x30,ADD);             // add ASCII 0 
+    load(0x30,ADD);             // add ASCII 0
     jumpc("SEND_UPPER",counter);
     labelc("UPPER_LETTER",counter);
     load(0x37,ADD);             // add ASCII A
     labelc("SEND_UPPER",counter);
     move(TRASH,TRASH);
     sendUart(ADD);              // send number
-    
+
     //check lower 4 bits
     memread(address, ALUA);
     //load (0xB7,ALUA);
@@ -352,11 +352,11 @@ void sendByteToAscii(uint16_t address)
     move(ANDA, ALUA);
     load(0x0A,GTA);             // branch if number is >9
     branchif1c(CARRY,"LOWER_LETTER",counter);
-    load(0x30,ADD);             // add ASCII 0 
+    load(0x30,ADD);             // add ASCII 0
     jumpc("SEND_LOWER",counter);
     labelc("LOWER_LETTER",counter);
     load(0x37,ADD);             // add ASCII A
-    labelc("SEND_LOWER",counter);    
+    labelc("SEND_LOWER",counter);
     move(TRASH,TRASH);
     sendUart(ADD);              // send number
 }
@@ -384,7 +384,7 @@ void uartEcho(uint16_t start)
         codeStart = start;
         codeIndex = codeStart;
     }
-    
+
     label("UART_ECHO");
     branchif1(URXEMP, "UART_ECHO");
     sendUart(UDAT);
@@ -407,14 +407,14 @@ void uartEcho2(uint16_t start)
     move(UDAT,      UDAT);
     jump("UART_ECHO");
 }
-  
+
 #define STACK_POINTER (0xFFFE)
 #define STACK_INIT (0xFFFD)
 
 void initStack(uint16_t start)
 {
     uint8_t lower_byte;
-    
+
     if (0!=start)
     {
         codeStart = start;
@@ -422,7 +422,7 @@ void initStack(uint16_t start)
     }
     /*
     lower_byte = STACK_POINTER%256;
-    
+
     load((STACK_POINTER/256), DRAMHI);
     load(lower_byte, DRAMLO);
 
@@ -440,7 +440,7 @@ uint8_t main()
 {
     codeStart = 0x9000;
     codeIndex = codeStart;
-//    aluTester(0);
+    aluTester(0);
 //    uartEcho(0x9100);
 //    uartEcho2(0x9100);
 //    initStack(0x8100);
@@ -449,7 +449,7 @@ uint8_t main()
 
 //    load(0x0D,ALUA);
 //    sendUart(ALUA);
-
+/*
     sendByteToAscii(0x8011);
     sendByteToAscii(0x8010);
     load(0x0D, ALUA);
@@ -461,15 +461,15 @@ uint8_t main()
     sendByteToAscii(0x8010);
     load(0x0D, ALUA);
     sendUart(ALUA);
-
+*/
     load(0x05,PCTEMP);
     load(0x00,PCLO);
-    
+
     secondPass();
 
-    printCode();
+    //printCode();
     //printVHDL();
-    //printBoot();
-    
+    printBoot();
+
     return 0;
 }

@@ -3,7 +3,7 @@ CC = gcc
 CC_FLAGS = -w
 
 # File names
-EXEC = hello
+EXEC = main
 SOURCES = $(wildcard *.c)
 OBJECTS = $(SOURCES:.c=.o)
 
