@@ -5,7 +5,7 @@
 #include "memorymap.h"
 
 #define STACK_POINTER (0xFFFE)
-#define STACK_INIT (0xFFFD)
+#define STACK_INIT (0xFD)
 
 
 
@@ -274,16 +274,6 @@ void secondPass(void)
 
 }
 
-void sendUart(uint16_t src)
-{
-    static uint16_t counter=0;
-    counter++;
-
-    labelc("SEND",counter);
-    branchif1c(UTXBSY, "SEND", counter);
-    move(src, UDAT);
-}
-
 void printCode(void)
 {
     uint16_t i;
@@ -317,6 +307,7 @@ void printVHDL(void)
 
 }
 
+#define B2A_ADDRESS (0x8200)
 /* sendByteToAscii: convert a byte to two-digit ASCII
  *  and send it to the UART
  */
@@ -324,6 +315,9 @@ void sendByteToAscii(uint16_t address)
 {
     static uint16_t counter=0;
     counter++;
+
+    codeStart = B2A_ADDRESS;
+    codeIndex = codeStart;
 
     //upper 4 bits
     memread(address, ALUA);
@@ -361,6 +355,8 @@ void sendByteToAscii(uint16_t address)
     labelc("SEND_LOWER",counter);
     move(TRASH,TRASH);
     sendUart(ADD);              // send number
+    ret();
+
 }
 
 
@@ -377,6 +373,16 @@ void aluTester(uint16_t start)
     load(0x03, SUB);
     move(SUB,   UDAT);
     jump("ALU_TEST");
+}
+
+void sendUart(uint8_t src)
+{
+    static uint16_t counter=0;
+    counter++;
+
+    labelc("SEND",counter);
+    branchif1c(UTXBSY, "SEND", counter);
+    move(src, UDAT);
 }
 
 void uartEcho(uint16_t start)
@@ -526,20 +532,40 @@ void initStack(uint16_t start)
     memload(STACK_POINTER,STACK_INIT);
 }
 
+#define TEST_ADDRESS (0x8200)
+
+void test_function()
+{
+    codeStart = TEST_ADDRESS;
+    codeIndex = codeStart;
+
+    load(0x35, ALUA);
+    load(0x03, SUB);
+    sendUart(SUB);
+    move(SUB,ALUA);
+    move(TRASH,AMINUS1);
+    sendUart(AMINUS1);
+    ret();
+}
+
 uint8_t main()
 {
     // generate functions
     return_function();
     printBoot();
+    test_function();
+    printBoot();
 
     // generate program
     codeStart = 0x9000;
     codeIndex = codeStart;
+    label("MAIN");
     initStack(0);
-    aluTester(0);
+//    call(TEST_ADDRESS);
+
+//    aluTester(0);
 //    uartEcho(0x9100);
 //    uartEcho2(0x9100);
-//    initStack(0x8100);
 
 //    sendByteToAscii(0x8100);
 
@@ -558,6 +584,15 @@ uint8_t main()
     load(0x0D, ALUA);
     sendUart(ALUA);
 */
+
+    load(0x58,ALUA);
+    sendUart(ALUA);
+    load(0x59,ALUA);
+    sendUart(ALUA);
+    load(0x5A,ALUA);
+    sendUart(ALUA);
+    jump("MAIN");
+
     load(0x05,PCTEMP);
     load(0x00,PCLO);
 
