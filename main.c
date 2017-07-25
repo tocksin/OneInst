@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include "memorymap.h"
 
+#define STACK_POINTER (0xFFFE)
+#define STACK_INIT (0xFFFD)
+
+
+
 uint16_t codeStart;
 uint16_t codeIndex;
 
@@ -23,8 +28,7 @@ void move(uint16_t src, uint16_t dst)
 }
 
 /* load: moves a constant into a destination */
-void load(uint16_t constant, uint16_t dst)
-{
+void load(uint16_t constant, uint16_t dst){
     move(constant,LOAD);
     move(LOAD,dst);
 }
@@ -301,7 +305,6 @@ void printBoot(void)
     {
         printf("W%04X%02X\n",i,code[i].byte,code[i+1].byte);
     }
-    printf("J%04X\n",codeStart);
 }
 
 void printVHDL(void)
@@ -408,8 +411,96 @@ void uartEcho2(uint16_t start)
     jump("UART_ECHO");
 }
 
-#define STACK_POINTER (0xFFFE)
-#define STACK_INIT (0xFFFD)
+/* Pushes the byte in the ALUA register onto the stack
+    Only 8-bit stack pointer
+    No overflow checking of stack
+*/
+void pushA(void)
+{
+//      Move DRAM to stack pointer location
+    load(0xFF,DRAMHI);
+    load(0xFE,DRAMLO);
+//      Load pointer register with that address
+    move(0xFF,PTRADR);
+//      Move from ALUA to the top of the stack
+    move(ALUA,PTRDAT);
+//      Subtract 1 from stack pointer
+    move(0xFF,ALUA);
+    move(TRASH,AMINUS1);
+//      Write stack pointer back
+    move(AMINUS1,0xFF);
+}
+
+/* Pushes the byte in the ALUR register onto the stack */
+void pushR(uint8_t pushbyte)
+{
+  /*
+      Move DRAM to stack pointer location
+      Read stack pointer
+      Load pointer register with that address
+      Move from ALUR to the top of the stack
+      Subtract 1 from stack pointer
+      Write stack pointer back
+  */
+}
+
+#define CALL_OFFSET (10)
+
+/* Pushes the return address onto the stack and jumps to the address */
+void call(uint16_t address)
+{
+//      store return address onto stack
+//        calculate codeIndex+offset
+//        load upper return addres into ALUA
+    load(((codeIndex+CALL_OFFSET) & 0b00001111),ALUA);
+    pushA();
+//        load lower return address into ALUA
+    load(((codeIndex+CALL_OFFSET) >> 8),ALUA);
+    pushA();
+//      jump to address
+//        load high address into PCTEMP
+    load((address & 0b00001111),PCTEMP);
+//        load low address into PCLO
+    load((address >> 8),PCLO);
+}
+
+#define RETURN_ADDRESS (0x8100)
+
+void return_function(void)
+{
+    codeStart = RETURN_ADDRESS;
+    codeIndex = codeStart;
+
+//  Move DRAMHI/LO to stack memory location
+    load(0xFF,DRAMHI);
+    load(0xFE,DRAMLO);
+
+//  Move stack pointer to ALUA
+    move(0xFF,ALUA);
+//  Add 1 to stack pointer
+    move(TRASH,APLUS1);
+//  Move ALU result to pointer address
+    move(APLUS1,PTRADR);
+//  Move high byte into PCTEMP
+    move(PTRDAT,PCTEMP);
+//  Add 1 to stack pointer
+    move(APLUS1,ALUA);
+    move(TRASH,APLUS1);
+//  Move ALU result back to memory
+    move(APLUS1,0xFF);
+//  Move ALU result to pointer address
+    move(APLUS1,PTRADR);
+//  Move low byte into PCLO
+    move(PTRDAT,PCLO);
+}
+
+/* Pops the address off the stack and jumps to it */
+void ret(void)
+{
+  load((RETURN_ADDRESS >> 8),PCTEMP);
+  load((RETURN_ADDRESS & 0b00001111),PCLO);
+  /* jump to return function */
+}
 
 void initStack(uint16_t start)
 {
@@ -438,8 +529,14 @@ void initStack(uint16_t start)
 
 uint8_t main()
 {
+    // generate functions
+    return_function();
+    printBoot();
+
+    // generate program
     codeStart = 0x9000;
     codeIndex = codeStart;
+    initStack(0);
     aluTester(0);
 //    uartEcho(0x9100);
 //    uartEcho2(0x9100);
@@ -470,6 +567,6 @@ uint8_t main()
     //printCode();
     //printVHDL();
     printBoot();
-
+    printf("J%04X\n",codeStart);
     return 0;
 }
