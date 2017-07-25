@@ -14,12 +14,12 @@ uint16_t codeIndex;
 
 struct CodeLine {
     char label[20];
-    uint16_t byte;
+    uint8_t byte;
     char missingUpper[20];
     char missingLower[20];
 } code[65536];
 
-void move(uint16_t src, uint16_t dst)
+void move(uint8_t src, uint8_t dst)
 {
     code[codeIndex].byte = src;
     codeIndex++;
@@ -28,7 +28,7 @@ void move(uint16_t src, uint16_t dst)
 }
 
 /* load: moves a constant into a destination */
-void load(uint16_t constant, uint16_t dst){
+void load(uint8_t constant, uint8_t dst){
     move(constant,LOAD);
     move(LOAD,dst);
 }
@@ -82,7 +82,7 @@ void jumpc(char labelstring[20],uint16_t count)
     jump(combined);
 }
 
-void branchif1(uint16_t dst, char labelstring[20])
+void branchif1(uint8_t dst, char labelstring[20])
 {
     uint16_t i;
 
@@ -106,14 +106,14 @@ void branchif1(uint16_t dst, char labelstring[20])
     load(0x00,PTRDAT);
 }
 
-void branchif1c(uint16_t dst, char labelstring[20], uint16_t count)
+void branchif1c(uint8_t dst, char labelstring[20], uint16_t count)
 {
     char combined[20];
     sprintf(combined, "%s%u", labelstring, count);
     branchif1(dst, combined);
 }
 
-void memload(uint16_t address, uint16_t dataword)
+void memload(uint16_t address, uint8_t dataword)
 {
     uint8_t lower_byte;
 
@@ -128,12 +128,11 @@ void memload(uint16_t address, uint16_t dataword)
     }
     load(dataword/256,lower_byte);
     load(dataword%256,lower_byte+1);
-
 }
 
 /* memread: moves the value at address in memory to dest
  */
-void memread(uint16_t address, uint16_t dest)
+void memread(uint16_t address, uint8_t dest)
 {
     uint8_t lower_byte;
 
@@ -151,7 +150,7 @@ void memread(uint16_t address, uint16_t dest)
 
 /* memwrite: moves the value in src to the address in memory
  */
-void memwrite(uint16_t address, uint16_t src)
+void memwrite(uint16_t address, uint8_t src)
 {
     uint8_t lower_byte;
 
