@@ -7,8 +7,6 @@
 #define STACK_POINTER (0xFFFE)
 #define STACK_INIT (0xFD)
 
-
-
 uint16_t codeStart;
 uint16_t codeIndex;
 
@@ -56,14 +54,18 @@ void labelc(char labelstring[20],uint16_t count)
 void jump(char labelstring[20])
 {
     uint16_t i;
+    char slabel[20];
+    sprintf(slabel, "JUMP-%s",labelstring);
+    label(slabel);
+
     for (i=codeStart;i<codeIndex;i+=2)
     {
         if (0==strcmp(labelstring,code[i].label))
         {
-            if ((i/256)!=(codeIndex/256))
-            {
+//            if ((i/256)!=(codeIndex/256))
+//            {
                 load((i/256),PCTEMP);
-            }
+//            }
             load((i%256),PCLO);
             return;
         }
@@ -91,10 +93,10 @@ void branchif1(uint8_t dst, char labelstring[20])
     {
         if (0==strcmp(labelstring,code[i].label))
         {
-            if ((i/256)!=(codeIndex/256))
-            {
+//            if ((i/256)!=(codeIndex/256))
+//            {
                 load((i/256),PCTEMP);
-            }
+//            }
             load((i%256),PTRDAT);
             return;
         }
@@ -173,16 +175,20 @@ void rotateleft(void)
     static uint16_t counter=0;
     counter++;
 
+    // Shift left
     move(TRASH,SHL0);
     move(SHL0,ALUA);
+    // If a bit was shifted out (into carry), then jump
     branchif1c(CARRY,"ROTATE_ADD",counter);
     jumpc("ROTATE_END",counter);
 
     labelc("ROTATE_ADD",counter);
+    // Add one to shift in the shifted-out bit
     move(TRASH,APLUS1);
     move(APLUS1,ALUA);
 
     labelc("ROTATE_END",counter);
+    // Placeholder instruction for end label
     move(TRASH,TRASH);
 }
 
@@ -230,17 +236,18 @@ void secondPass(void)
     uint16_t i, j;
     uint8_t found = 0;
 
-    for (i=codeStart;i<codeIndex;i+=1)
+    for (i=0;i<0xFFFF;i+=1)
+//    for (i=codeStart;i<codeIndex;i+=1)
     {
         if (0!=strcmp(code[i].missingUpper,""))
         {
-            printf("Searching for %s\n",code[i].missingUpper);
+            //printf("Searching for %s\n",code[i].missingUpper);
             for (j=i; j<codeIndex;j+=1)
             {
                 if (0==strcmp(code[i].missingUpper,code[j].label))
                 {
                     code[i].byte=(j/256);
-                    printf("%s at %X\n",code[j].label,code[i].byte);
+                    //printf("%s at %X\n",code[j].label,code[i].byte);
                     found = 1;
                 }
             }
@@ -253,13 +260,13 @@ void secondPass(void)
         }
         if (0!=strcmp(code[i].missingLower,""))
         {
-            printf("Searching for %s\n",code[i].missingLower);
+            //printf("Searching for %s\n",code[i].missingLower);
             for (j=i; j<codeIndex;j+=1)
             {
                 if (0==strcmp(code[i].missingLower,code[j].label))
                 {
                     code[i].byte=(j%256);
-                    printf("%s at %X\n",code[j].label,code[i].byte);
+                    //printf("%s at %X\n",code[j].label,code[i].byte);
                     found = 1;
                 }
             }
@@ -307,6 +314,20 @@ void printVHDL(void)
 
 }
 
+void printLabels(void)
+{
+  uint16_t i;
+  for (i=0x8000;i<0xFFFE;i+=2)
+  {
+      if (0!=strcmp(code[i].label,""))
+      {
+          printf("%04X : ",i);
+          printf("%s\n",code[i].label);
+      }
+  }
+
+}
+
 #define B2A_ADDRESS (0x8200)
 /* sendByteToAscii: convert a byte to two-digit ASCII
  *  and send it to the UART
@@ -316,8 +337,8 @@ void sendByteToAscii(uint16_t address)
     static uint16_t counter=0;
     counter++;
 
-    codeStart = B2A_ADDRESS;
-    codeIndex = codeStart;
+//    codeStart = B2A_ADDRESS;
+//    codeIndex = codeStart;
 
     //upper 4 bits
     memread(address, ALUA);
@@ -355,7 +376,7 @@ void sendByteToAscii(uint16_t address)
     labelc("SEND_LOWER",counter);
     move(TRASH,TRASH);
     sendUart(ADD);              // send number
-    ret();
+//    ret();
 
 }
 
@@ -422,10 +443,15 @@ void uartEcho2(uint16_t start)
 */
 void pushA(void)
 {
+
+    static uint16_t counter=0;
+    counter++;
+
+    labelc("PUSHA",counter);
 //      Move DRAM to stack pointer location
     load(0xFF,DRAMHI);
     load(0xFE,DRAMLO);
-//      Load pointer register with that address
+//      Load pointer register with that stack pointer
     move(0xFF,PTRADR);
 //      Move from ALUA to the top of the stack
     move(ALUA,PTRDAT);
@@ -436,37 +462,55 @@ void pushA(void)
     move(AMINUS1,0xFF);
 }
 
-/* Pushes the byte in the ALUR register onto the stack */
-void pushR(uint8_t pushbyte)
+/* Pop the top value off the stack and put it in ALUA */
+void popA(void)
 {
-  /*
-      Move DRAM to stack pointer location
-      Read stack pointer
-      Load pointer register with that address
-      Move from ALUR to the top of the stack
-      Subtract 1 from stack pointer
-      Write stack pointer back
-  */
+
+    static uint16_t counter=0;
+    counter++;
+
+    labelc("POPA",counter);
+//      Move DRAM to stack pointer location
+    load(0xFF,DRAMHI);
+    load(0xFE,DRAMLO);
+//        Move stack pointer to ALUA
+    move(0xFF,ALUA);
+//        Add 1 to stack pointer (ALUA)
+    move(TRASH,APLUS1);
+//        Write back new stack pointer (ALUA)
+    move(APLUS1,0xFF);
+//        Move new stack pointer to pointer register
+    move(APLUS1,PTRADR);
+//        Move top of stack to ALUA
+    move(PTRDAT,ALUA);
 }
 
-#define CALL_OFFSET (10)
+
+#define CALL_OFFSET (34)
 
 /* Pushes the return address onto the stack and jumps to the address */
 void call(uint16_t address)
 {
 //      store return address onto stack
 //        calculate codeIndex+offset
-//        load upper return addres into ALUA
-    load(((codeIndex+CALL_OFFSET) & 0b00001111),ALUA);
-    pushA();
+    uint16_t return_addr = 0;
+    return_addr = codeIndex+CALL_OFFSET;
+
+    char slabel[20];
+    sprintf(slabel, "CALL-%04X",address);
+    label(slabel);
+
 //        load lower return address into ALUA
-    load(((codeIndex+CALL_OFFSET) >> 8),ALUA);
+    load((return_addr & 0x00FF),ALUA);
+    pushA();
+//        load upper return addres into ALUA
+    load((return_addr >> 8),ALUA);
     pushA();
 //      jump to address
 //        load high address into PCTEMP
-    load((address & 0b00001111),PCTEMP);
+    load((address >> 8),PCTEMP);
 //        load low address into PCLO
-    load((address >> 8),PCLO);
+    load((address & 0x00FF),PCLO);
 }
 
 #define RETURN_ADDRESS (0x8100)
@@ -476,34 +520,19 @@ void return_function(void)
     codeStart = RETURN_ADDRESS;
     codeIndex = codeStart;
 
-//  Move DRAMHI/LO to stack memory location
-    load(0xFF,DRAMHI);
-    load(0xFE,DRAMLO);
-
-//  Move stack pointer to ALUA
-    move(0xFF,ALUA);
-//  Add 1 to stack pointer
-    move(TRASH,APLUS1);
-//  Move ALU result to pointer address
-    move(APLUS1,PTRADR);
-//  Move high byte into PCTEMP
-    move(PTRDAT,PCTEMP);
-//  Add 1 to stack pointer
-    move(APLUS1,ALUA);
-    move(TRASH,APLUS1);
-//  Move ALU result back to memory
-    move(APLUS1,0xFF);
-//  Move ALU result to pointer address
-    move(APLUS1,PTRADR);
-//  Move low byte into PCLO
-    move(PTRDAT,PCLO);
+    //  Pop high byte into PCTEMP
+    popA();
+    move(ALUA,PCTEMP);
+    //  Pop low byte into PCLO
+    popA();
+    move(ALUA,PCLO);
 }
 
 /* Pops the address off the stack and jumps to it */
 void ret(void)
 {
   load((RETURN_ADDRESS >> 8),PCTEMP);
-  load((RETURN_ADDRESS & 0b00001111),PCLO);
+  load((RETURN_ADDRESS & 0x00FF),PCLO);
   /* jump to return function */
 }
 
@@ -532,12 +561,15 @@ void initStack(uint16_t start)
     memload(STACK_POINTER,STACK_INIT);
 }
 
-#define TEST_ADDRESS (0x8200)
+#define TEST_ADDRESS (0x8A00)
 
 void test_function()
 {
     codeStart = TEST_ADDRESS;
     codeIndex = codeStart;
+
+    sendByteToAscii(0xFFFF);
+    label("TEST");
 
     load(0x35, ALUA);
     load(0x03, SUB);
@@ -545,6 +577,7 @@ void test_function()
     move(SUB,ALUA);
     move(TRASH,AMINUS1);
     sendUart(AMINUS1);
+//    sendByteToAscii(0xFFFF);
     ret();
 }
 
@@ -552,16 +585,31 @@ uint8_t main()
 {
     // generate functions
     return_function();
+    secondPass();
+    //printCode();
     printBoot();
     test_function();
+    secondPass();
+    //printCode();
+    printBoot();
+
+    codeStart = 0x8E00;
+    codeIndex = codeStart;
+    sendByteToAscii(0xFFFF);
+    load(0x05,PCTEMP);
+    load(0x00,PCLO);
+    secondPass();
     printBoot();
 
     // generate program
     codeStart = 0x9000;
     codeIndex = codeStart;
-    label("MAIN");
+    label("INIT");
     initStack(0);
-//    call(TEST_ADDRESS);
+    label("MAIN");
+    move(TRASH,TRASH);
+    call(TEST_ADDRESS);
+    move(TRASH,TRASH);
 
 //    aluTester(0);
 //    uartEcho(0x9100);
@@ -584,15 +632,30 @@ uint8_t main()
     load(0x0D, ALUA);
     sendUart(ALUA);
 */
-
+/*
+    move(TRASH,TRASH);
+    sendByteToAscii(0xFFFF);
+    label("TEST");
+    move(TRASH,TRASH);
     load(0x58,ALUA);
-    sendUart(ALUA);
+    pushA();
+    //sendByteToAscii(0xFFFF);
     load(0x59,ALUA);
+    pushA();
+    //sendByteToAscii(0xFFFF);
+    popA();
     sendUart(ALUA);
+    //sendByteToAscii(0xFFFF);
+    popA();
+    sendUart(ALUA);
+    //sendByteToAscii(0xFFFF);
     load(0x5A,ALUA);
+    pushA();
+    popA();
     sendUart(ALUA);
-    jump("MAIN");
-
+    sendByteToAscii(0xFFFF);
+//    jump("MAIN");
+*/
     load(0x05,PCTEMP);
     load(0x00,PCLO);
 
@@ -601,6 +664,7 @@ uint8_t main()
     //printCode();
     //printVHDL();
     printBoot();
-    printf("J%04X\n",codeStart);
+    //printLabels();
+    //printf("J%04X\n",codeStart);
     return 0;
 }
