@@ -128,8 +128,7 @@ void memload(uint16_t address, uint8_t dataword)
     {
         lower_byte = lower_byte+0x80;
     }
-    load(dataword/256,lower_byte);
-    load(dataword%256,lower_byte+1);
+    load(dataword,lower_byte);
 }
 
 /* memread: moves the value at address in memory to dest
@@ -189,7 +188,7 @@ void rotateleft(void)
 
     labelc("ROTATE_END",counter);
     // Placeholder instruction for end label
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
 }
 
 /* inc16: increment a 16-bit number
@@ -212,7 +211,7 @@ void inc16(uint16_t address)
     move(TRASH, APLUS1);
     memwrite(address+1, APLUS1);
     labelc("INCDONE",counter);
-    move(TRASH,TRASH); // holds the label location
+    move(PCLO,TRASH); // holds the label location
 }
 
 /* add16: adds two 16-bit numbers
@@ -284,32 +283,42 @@ void secondPass(void)
 void printCode(void)
 {
     uint16_t i;
-    for (i=codeStart;i<codeIndex;i+=2)
+    for (i=0;i<0xFFFE;i+=2)
     {
         if (0!=strcmp(code[i].label,""))
         {
             printf("%s\n",code[i].label);
         }
-        printf("%04X : %02X %02X\n",i,code[i].byte,code[i+1].byte);
+        if ((0!=code[i].byte) & (0!=code[i].byte))
+        {
+          printf("%04X : %02X %02X\n",i,code[i].byte,code[i+1].byte);
+        }
     }
 }
 
 void printBoot(void)
 {
     uint16_t i;
-    for (i=codeStart;i<codeIndex;i+=1)
+    for (i=0;i<0xFFFE;i+=2)
     {
-        printf("W%04X%02X\n",i,code[i].byte,code[i+1].byte);
+        if ((0!=code[i].byte) || (0!=code[i+1].byte))
+        {
+          printf("W%04X%02X\n",i,code[i].byte);
+          printf("W%04X%02X\n",i+1,code[i+1].byte);
+        }
     }
 }
 
 void printVHDL(void)
 {
     uint16_t i;
-    for (i=codeStart;i<codeIndex;i+=2)
+    for (i=0;i<0xFFFE;i+=2)
     {
+      if ((0!=code[i].byte) & (0!=code[i].byte))
+      {
         printf("%u => x\"%02X\",  ",i,code[i].byte);
         printf("%u => x\"%02X\",\n",i+1,code[i+1].byte);
+      }
     }
 
 }
@@ -358,7 +367,7 @@ void sendByteToAscii(uint16_t address)
     labelc("UPPER_LETTER",counter);
     load(0x37,ADD);             // add ASCII A
     labelc("SEND_UPPER",counter);
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
     sendUart(ADD);              // send number
 
     //check lower 4 bits
@@ -374,7 +383,7 @@ void sendByteToAscii(uint16_t address)
     labelc("LOWER_LETTER",counter);
     load(0x37,ADD);             // add ASCII A
     labelc("SEND_LOWER",counter);
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
     sendUart(ADD);              // send number
 //    ret();
 
@@ -486,7 +495,7 @@ void popA(void)
 }
 
 
-#define CALL_OFFSET (34)
+#define CALL_OFFSET (52)
 
 /* Pushes the return address onto the stack and jumps to the address */
 void call(uint16_t address)
@@ -511,6 +520,20 @@ void call(uint16_t address)
     load((address >> 8),PCTEMP);
 //        load low address into PCLO
     load((address & 0x00FF),PCLO);
+}
+
+void calls(char labelstring[20])
+{
+  uint16_t i;
+
+  for (i=0;i<0xFFFE;i+=2)
+  {
+      if (0==strcmp(labelstring,code[i].label))
+      {
+          call(i);
+          return;
+      }
+  }
 }
 
 #define RETURN_ADDRESS (0x8100)
@@ -563,14 +586,12 @@ void initStack(uint16_t start)
 
 #define TEST_ADDRESS (0x8A00)
 
-void test_function()
+void test_function(void)
 {
     codeStart = TEST_ADDRESS;
     codeIndex = codeStart;
 
-    sendByteToAscii(0xFFFF);
     label("TEST");
-
     load(0x35, ALUA);
     load(0x03, SUB);
     sendUart(SUB);
@@ -581,25 +602,61 @@ void test_function()
     ret();
 }
 
+/* Multiply the 2 bytes at 80B0 and 80B1
+   Store result in 80B2 and 80B3
+   Counter is 80B0
+*/
+void multiply_function(void)
+{
+    label("MULTIPLY");
+    //   Set DRAM to 0x8090 memory area
+    load(0x80,DRAMHI);
+    load(0xB0,DRAMLO);
+    // clear result location
+    move(TRASH,0xB2);
+    move(TRASH,0xB3);
+    //     loop:
+    label("MULTIPLY_LOOP");
+    //     if counter==0 then return
+    move(0xB0, ALUA);
+    move(TRASH, EQUAL);
+    branchif1(AEB,"MULTIPLY_RETURN");
+    //     Add lower 8-bits of result with 8091
+    move(0xB1,ALUA);
+    move(0xB3,ADD);
+    move(ADD,0xB3);
+    //     If carry=1, then add 1 to upper 8-bits of result
+    branchif1(CARRY,"MULTIPLY_BUMP");
+    jump("MULTIPLY_COUNT");
+    label("MULTIPLY_BUMP");
+    move(0xB2,ALUA);
+    move(TRASH,APLUS1);
+    move(APLUS1,0xB2);
+    //     subtract 1 from counter
+    label("MULTIPLY_COUNT");
+    move(0xB0,ALUA);
+    move(TRASH,AMINUS1);
+    move(AMINUS1,0xB0);
+    //     jump to loop
+    jump("MULTIPLY_LOOP");
+    // return
+    label("MULTIPLY_RETURN");
+    move(PCLO,TRASH);
+    ret();
+}
+
 uint8_t main()
 {
     // generate functions
     return_function();
-    secondPass();
-    //printCode();
-    printBoot();
     test_function();
-    secondPass();
-    //printCode();
-    printBoot();
+    multiply_function();
 
     codeStart = 0x8E00;
     codeIndex = codeStart;
     sendByteToAscii(0xFFFF);
     load(0x05,PCTEMP);
     load(0x00,PCLO);
-    secondPass();
-    printBoot();
 
     // generate program
     codeStart = 0x9000;
@@ -607,9 +664,23 @@ uint8_t main()
     label("INIT");
     initStack(0);
     label("MAIN");
-    move(TRASH,TRASH);
-    call(TEST_ADDRESS);
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
+    //memload(0x8080,0xFF);
+    //memload(0x8081,0xFF);
+    sendByteToAscii(0x80B0);
+    load(0x2A, ALUA);
+    sendUart(ALUA);
+    sendByteToAscii(0x80B1);
+    load(0x3D, ALUA);
+    sendUart(ALUA);
+
+    calls("MULTIPLY");
+    sendByteToAscii(0x80B2);
+    sendByteToAscii(0x80B3);
+    load(0x0D, ALUA);
+    sendUart(ALUA);
+
+    //call(TEST_ADDRESS);
 
 //    aluTester(0);
 //    uartEcho(0x9100);
@@ -633,10 +704,10 @@ uint8_t main()
     sendUart(ALUA);
 */
 /*
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
     sendByteToAscii(0xFFFF);
     label("TEST");
-    move(TRASH,TRASH);
+    move(PCLO,TRASH);
     load(0x58,ALUA);
     pushA();
     //sendByteToAscii(0xFFFF);
@@ -654,8 +725,9 @@ uint8_t main()
     popA();
     sendUart(ALUA);
     sendByteToAscii(0xFFFF);
-//    jump("MAIN");
 */
+//    jump("INIT");
+
     load(0x05,PCTEMP);
     load(0x00,PCLO);
 
@@ -664,7 +736,7 @@ uint8_t main()
     //printCode();
     //printVHDL();
     printBoot();
-    //printLabels();
+    printLabels();
     //printf("J%04X\n",codeStart);
     return 0;
 }
