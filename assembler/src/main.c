@@ -17,18 +17,29 @@ struct CodeLine {
     char missingLower[20];
 } code[65536];
 
-void move(uint8_t src, uint8_t dst)
+void move(uint16_t src, uint16_t dst)
 {
-    code[codeIndex].byte = src;
+    code[codeIndex].byte = (src%256);
     codeIndex++;
-    code[codeIndex].byte = dst;
+    code[codeIndex].byte = (src/256);
+    codeIndex++;
+    code[codeIndex].byte = (dst%256);
+    codeIndex++;
+    code[codeIndex].byte = (dst/256);
     codeIndex++;
 }
 
 /* load: moves a constant into a destination */
-void load(uint8_t constant, uint8_t dst){
-    move(constant,LOAD);
-    move(LOAD,dst);
+void load(uint8_t constant, uint16_t dst)
+{
+  code[codeIndex].byte = constant;
+  codeIndex++;
+  code[codeIndex].byte = CONSTANT_BANK;
+  codeIndex++;
+  code[codeIndex].byte = (dst%256);
+  codeIndex++;
+  code[codeIndex].byte = (dst/256);
+  codeIndex++;
 }
 
 void label(char labelstring[20])
@@ -84,11 +95,12 @@ void jumpc(char labelstring[20],uint16_t count)
     jump(combined);
 }
 
-void branchif1(uint8_t dst, char labelstring[20])
+void branchif1(uint16_t dst, char labelstring[20])
 {
     uint16_t i;
 
-    move(dst, PTRADR);
+    load(0x00, PTRAHI);
+    move(dst, PTRALO);
     for (i=codeStart;i<codeIndex;i+=2)
     {
         if (0==strcmp(labelstring,code[i].label))
@@ -108,65 +120,12 @@ void branchif1(uint8_t dst, char labelstring[20])
     load(0x00,PTRDAT);
 }
 
-void branchif1c(uint8_t dst, char labelstring[20], uint16_t count)
+void branchif1c(uint16_t dst, char labelstring[20], uint16_t count)
 {
     char combined[20];
     sprintf(combined, "%s%u", labelstring, count);
     branchif1(dst, combined);
 }
-
-void memload(uint16_t address, uint8_t dataword)
-{
-    uint8_t lower_byte;
-
-    load((address/256), DRAMHI);
-
-    lower_byte = address%256;
-    load(lower_byte, DRAMLO);
-
-    if (0x80>lower_byte)
-    {
-        lower_byte = lower_byte+0x80;
-    }
-    load(dataword,lower_byte);
-}
-
-/* memread: moves the value at address in memory to dest
- */
-void memread(uint16_t address, uint8_t dest)
-{
-    uint8_t lower_byte;
-
-    load((address/256), DRAMHI);
-
-    lower_byte = address%256;
-    load(lower_byte, DRAMLO);
-
-    if (0x80>lower_byte)
-    {
-        lower_byte = lower_byte+0x80;
-    }
-    move (lower_byte,dest);
-}
-
-/* memwrite: moves the value in src to the address in memory
- */
-void memwrite(uint16_t address, uint8_t src)
-{
-    uint8_t lower_byte;
-
-    load((address/256), DRAMHI);
-
-    lower_byte = address%256;
-    load(lower_byte, DRAMLO);
-
-    if (0x80>lower_byte)
-    {
-        lower_byte = lower_byte+0x80;
-    }
-    move (src,lower_byte);
-}
-
 
 /* rotateleft:  rotates left the value in ALUA */
 void rotateleft(void)
@@ -201,15 +160,15 @@ void inc16(uint16_t address)
     static uint16_t counter=0;
     counter++;
 
-    memread(address, ALUA);
+    move(address, ALUA);
     move(TRASH, APLUS1);
-    memwrite(address, APLUS1);
+    move(APLUS1, address);
     branchif1c(CARRY,"INC_UPPER",counter);
     jumpc("INCDONE",counter);
     labelc("INC_UPPER",counter);
-    memread(address+1,ALUA);
+    move(address+1,ALUA);
     move(TRASH, APLUS1);
-    memwrite(address+1, APLUS1);
+    move(APLUS1, address+1);
     labelc("INCDONE",counter);
     move(PCLO,TRASH); // holds the label location
 }
@@ -222,9 +181,9 @@ void inc16(uint16_t address)
  */
 void add16(uint16_t a, uint16_t b, uint16_t result)
 {
-    memread(a, ALUA);
-    memread(b, ADD);
-    memwrite(ADD, result);
+//    memread(a, ALUA);
+//    memread(b, ADD);
+//    memwrite(ADD, result);
     branchif1(CARRY,"ADD_W_CARRY");
 
     label("ADD_W_CARRY");
@@ -283,15 +242,16 @@ void secondPass(void)
 void printCode(void)
 {
     uint16_t i;
-    for (i=0;i<0xFFFE;i+=2)
+    for (i=0;i<0xFFFC;i+=4)
     {
         if (0!=strcmp(code[i].label,""))
         {
             printf("%s\n",code[i].label);
         }
-        if ((0!=code[i].byte) & (0!=code[i].byte))
+        if (!((0==code[i].byte) & (0==code[i+1].byte) & (0==code[i+2].byte) & (0==code[i+3].byte)))
         {
-          printf("%04X : %02X %02X\n",i,code[i].byte,code[i+1].byte);
+          printf("%04X : %02X%02X",i,code[i+1].byte,code[i].byte);
+          printf(" %02X%02X\n",code[i+3].byte,code[i+2].byte);
         }
     }
 }
@@ -299,12 +259,14 @@ void printCode(void)
 void printBoot(void)
 {
     uint16_t i;
-    for (i=0;i<0xFFFE;i+=2)
+    for (i=0;i<0xFFFC;i+=4)
     {
-        if ((0!=code[i].byte) || (0!=code[i+1].byte))
+      if (!((0==code[i].byte) & (0==code[i+1].byte) & (0==code[i+2].byte) & (0==code[i+3].byte)))
         {
           printf("W%04X%02X\n",i,code[i].byte);
           printf("W%04X%02X\n",i+1,code[i+1].byte);
+          printf("W%04X%02X\n",i+2,code[i+2].byte);
+          printf("W%04X%02X\n",i+3,code[i+3].byte);
         }
     }
 }
@@ -312,12 +274,14 @@ void printBoot(void)
 void printVHDL(void)
 {
     uint16_t i;
-    for (i=0;i<0xFFFE;i+=2)
+    for (i=0;i<0xFFFC;i+=4)
     {
-      if ((0!=code[i].byte) & (0!=code[i].byte))
+      if (!((0==code[i].byte) & (0==code[i+1].byte) & (0==code[i+2].byte) & (0==code[i+3].byte)))
       {
-        printf("%u => x\"%02X\",  ",i,code[i].byte);
-        printf("%u => x\"%02X\",\n",i+1,code[i+1].byte);
+        printf("%u => x\"%02X\", ",i,code[i].byte);
+        printf("%u => x\"%02X\",    ",i+1,code[i+1].byte);
+        printf("%u => x\"%02X\", ",i+2,code[i+2].byte);
+        printf("%u => x\"%02X\",\n",i+3,code[i+3].byte);
       }
     }
 
@@ -326,7 +290,7 @@ void printVHDL(void)
 void printLabels(void)
 {
   uint16_t i;
-  for (i=0x8000;i<0xFFFE;i+=2)
+  for (i=0x8000;i<0xFFFC;i+=4)
   {
       if (0!=strcmp(code[i].label,""))
       {
@@ -350,7 +314,7 @@ void sendByteToAscii(uint16_t address)
 //    codeIndex = codeStart;
 
     //upper 4 bits
-    memread(address, ALUA);
+    //memread(address, ALUA);
     //load (0xB7,ALUA);
 
     rotateleft();   // shift right by 4
@@ -371,7 +335,7 @@ void sendByteToAscii(uint16_t address)
     sendUart(ADD);              // send number
 
     //check lower 4 bits
-    memread(address, ALUA);
+    //memread(address, ALUA);
     //load (0xB7,ALUA);
 
     load(0x0F,ANDA);             // remove upper bits
@@ -399,13 +363,13 @@ void aluTester(uint16_t start)
     }
 
     label("ALU_TEST");
-    load(0x35, ALUA);
+    load(0x38, ALUA);
     load(0x03, SUB);
     move(SUB,   UDAT);
     jump("ALU_TEST");
 }
 
-void sendUart(uint8_t src)
+void sendUart(uint16_t src)
 {
     static uint16_t counter=0;
     counter++;
@@ -414,7 +378,7 @@ void sendUart(uint8_t src)
     branchif1c(UTXBSY, "SEND", counter);
     move(src, UDAT);
 }
-
+/*
 void uartEcho(uint16_t start)
 {
     if (0!=start)
@@ -428,7 +392,7 @@ void uartEcho(uint16_t start)
     sendUart(UDAT);
     jump("UART_ECHO");
 }
-
+*/
 void uartEcho2(uint16_t start)
 {
     if (0!=start)
@@ -458,10 +422,10 @@ void pushA(void)
 
     labelc("PUSHA",counter);
 //      Move DRAM to stack pointer location
-    load(0xFF,DRAMHI);
-    load(0xFE,DRAMLO);
+    //load(0xFF,DRAMHI);
+    //load(0xFE,DRAMLO);
 //      Load pointer register with that stack pointer
-    move(0xFF,PTRADR);
+    //move(0xFF,PTRADR);
 //      Move from ALUA to the top of the stack
     move(ALUA,PTRDAT);
 //      Subtract 1 from stack pointer
@@ -480,8 +444,8 @@ void popA(void)
 
     labelc("POPA",counter);
 //      Move DRAM to stack pointer location
-    load(0xFF,DRAMHI);
-    load(0xFE,DRAMLO);
+    //load(0xFF,DRAMHI);
+    //load(0xFE,DRAMLO);
 //        Move stack pointer to ALUA
     move(0xFF,ALUA);
 //        Add 1 to stack pointer (ALUA)
@@ -489,7 +453,7 @@ void popA(void)
 //        Write back new stack pointer (ALUA)
     move(APLUS1,0xFF);
 //        Move new stack pointer to pointer register
-    move(APLUS1,PTRADR);
+    //move(APLUS1,PTRADR);
 //        Move top of stack to ALUA
     move(PTRDAT,ALUA);
 }
@@ -561,7 +525,7 @@ void ret(void)
 
 void initStack(uint16_t start)
 {
-    uint8_t lower_byte;
+    //uint8_t lower_byte;
 
     if (0!=start)
     {
@@ -581,7 +545,7 @@ void initStack(uint16_t start)
     load(STACK_INIT/256,lower_byte);
     load(STACK_INIT%256,lower_byte+1);
     */
-    memload(STACK_POINTER,STACK_INIT);
+    //memload(STACK_POINTER,STACK_INIT);
 }
 
 #define TEST_ADDRESS (0x8A00)
@@ -610,8 +574,8 @@ void multiply_function(void)
 {
     label("MULTIPLY");
     //   Set DRAM to 0x8090 memory area
-    load(0x80,DRAMHI);
-    load(0xB0,DRAMLO);
+    //load(0x80,DRAMHI);
+    //load(0xB0,DRAMLO);
     // clear result location
     move(TRASH,0xB2);
     move(TRASH,0xB3);
@@ -645,13 +609,217 @@ void multiply_function(void)
     ret();
 }
 
-uint8_t main()
+#define STRING_PTR (0x8080)
+#define CONVERT_ADDR_LO (0x8070)
+#define CONVERT_ADDR_HI (0x8071)
+#define CONVERT_DATA (0x8072)
+
+void bootloader_function(void)
+{
+  // string pointer is at 0x8080
+  // string starts at 0x8081
+  label("BOOT_TOP");
+  load(0x81, STRING_PTR);     // initialize string pointer in RAM
+  load(0x00, STRING_PTR+1);   // clear string 
+  load(0x00, STRING_PTR+2);
+  load(0x00, STRING_PTR+3);
+  load(0x00, STRING_PTR+4);
+  load(0x00, STRING_PTR+5);
+  load(0x00, STRING_PTR+6);
+  label("BOOT_LOOP");
+  branchif1(UTXBSY, "BOOT_LOOP");
+  branchif1(URXRDY, "BOOT_SEND");
+  jump("BOOT_LOOP");
+  label("BOOT_SEND");
+  move(UDAT,UDAT);      // echo character
+
+  // check for backspace
+  load(0x08,ALUA);    // ASCII backspace
+  move(UDAT, EQUAL);
+  branchif1(AEB,"BOOT_BACKSPACE");
+  jump("BOOT_CHKENTER");
+  label("BOOT_BACKSPACE");
+  // check if string is zero
+  move(STRING_PTR, ALUA);
+  load(0x81, EQUAL);
+  branchif1(AEB,"BOOT_LOOP");  // if so, then just jump back to top
+  // if not, decrease pointer by one
+  move(TRASH,AMINUS1);
+  move(AMINUS1, STRING_PTR);
+  jump("BOOT_LOOP");
+
+  label("BOOT_CHKENTER");
+  // check for enter key
+  load(0x0D, ALUA);   // ASCII carriage return
+  move(UDAT, EQUAL);
+  branchif1(AEB,"BOOT_PROCESS");
+  // add any other character to the string
+  load(0x80,PTRAHI);
+  move(STRING_PTR,PTRALO);
+  move(UDAT,PTRDAT);
+  // increase string pointer by 1
+  move(STRING_PTR,ALUA);
+  move(TRASH,APLUS1);
+  move(APLUS1,STRING_PTR);
+  jump("BOOT_LOOP");
+
+  label("BOOT_PROCESS");
+  // convert first character
+  move(STRING_PTR+2,ALUA);
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N1");
+  jump("BOOT_SAVE1");
+  // subtract 7 if it's a letter
+  label("BOOT_N1");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE1");
+  // shift left 4 times
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(ALUA,CONVERT_ADDR_HI);
+
+  // convert second character
+  move(STRING_PTR+3,ALUA);
+  // subtract ASCII '0' to convert to binary
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N2");
+  jump("BOOT_SAVE2");
+  // subtract 7 if it's a letter
+  label("BOOT_N2");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE2");
+  // add upper nibble to lower nibble
+  move(CONVERT_ADDR_HI,ADD);
+  move(ADD,CONVERT_ADDR_HI);
+
+  // convert third character
+  move(STRING_PTR+4,ALUA);
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N3");
+  jump("BOOT_SAVE3");
+  // subtract 7 if it's a letter
+  label("BOOT_N3");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE3");
+  // shift left 4 times
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(ALUA,CONVERT_ADDR_LO);
+
+  // convert fourth character
+  move(STRING_PTR+5,ALUA);
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N4");
+  jump("BOOT_SAVE4");
+  // subtract 7 if it's a letter
+  label("BOOT_N4");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE4");
+  // add upper nibble to lower nibble
+  move(CONVERT_ADDR_LO,ADD);
+  move(ADD,CONVERT_ADDR_LO);
+
+  // check if command is a Write
+  move(STRING_PTR+1,ALUA);
+  load(0x57,EQUAL);   // compare to ASCII W
+  branchif1(AEB,"BOOT_WRITE");
+  // check if command is a Jump
+  load(0x4A,EQUAL);   // compare to ASCII J
+  branchif1(AEB,"BOOT_JUMP");
+  sendUart(0x013F);     // send '?'
+  sendUart(0x010D);     // send CR
+  jump("BOOT_TOP");
+
+  label("BOOT_WRITE");
+  // convert fifth character
+  move(STRING_PTR+6,ALUA);
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N5");
+  jump("BOOT_SAVE5");
+  // subtract 7 if it's a letter
+  label("BOOT_N5");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE5");
+  // shift left 4 times
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(TRASH,SHL0);
+  move(SHL0,ALUA);
+  move(ALUA,CONVERT_DATA);
+
+  // convert sixth character
+  move(STRING_PTR+7,ALUA);
+  load(0x30,SUB);
+  move(SUB,ALUA);
+  load(0x0A,GTA);     // branch if character is a A-F
+  branchif1(CARRY,"BOOT_N6");
+  jump("BOOT_SAVE6");
+  // subtract 7 if it's a letter
+  label("BOOT_N6");
+  load(0x07,SUB);
+  move(SUB,ALUA);
+  label("BOOT_SAVE6");
+  // add upper nibble to lower nibble
+  move(CONVERT_DATA,ADD);
+  move(ADD,CONVERT_DATA);
+
+  // perform Write
+  move(CONVERT_ADDR_HI, PTRAHI);
+  move(CONVERT_ADDR_LO, PTRALO);
+  move(CONVERT_DATA, PTRDAT);
+  jump("BOOT_TOP");
+
+  // perform Jump
+  label("BOOT_JUMP");
+  move(CONVERT_ADDR_HI,PCTEMP);
+  move(CONVERT_ADDR_LO,PCLO);
+
+}
+
+void nop(void)
+{
+  load(0x00,TRASH);
+}
+
+uint16_t main()
 {
     // generate functions
-    return_function();
-    test_function();
-    multiply_function();
+//    return_function();
+//    test_function();
+//    multiply_function();
 
+/*
     codeStart = 0x8E00;
     codeIndex = codeStart;
     sendByteToAscii(0xFFFF);
@@ -679,10 +847,18 @@ uint8_t main()
     sendByteToAscii(0x80B3);
     load(0x0D, ALUA);
     sendUart(ALUA);
-
+*/
     //call(TEST_ADDRESS);
+    codeStart = 0x0200;
+    codeIndex = codeStart;
+    nop();  // Placeholders for boot vector
+    nop();
+    bootloader_function();
 
-//    aluTester(0);
+    codeStart = 0x1000;
+    codeIndex = codeStart;
+    aluTester(0);
+
 //    uartEcho(0x9100);
 //    uartEcho2(0x9100);
 
@@ -728,15 +904,15 @@ uint8_t main()
 */
 //    jump("INIT");
 
-    load(0x05,PCTEMP);
-    load(0x00,PCLO);
+//    load(0x05,PCTEMP);
+//    load(0x00,PCLO);
 
     secondPass();
 
     //printCode();
-    //printVHDL();
-    printBoot();
-    printLabels();
+    printVHDL();
+    //printBoot();
+    //printLabels();
     //printf("J%04X\n",codeStart);
     return 0;
 }
